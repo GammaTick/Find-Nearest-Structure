@@ -1,14 +1,17 @@
 package net.findneareststructure;
 
-import com.google.common.base.Stopwatch;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
-import com.mojang.datafixers.util.Pair;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.minecraft.registry.entry.RegistryEntry;
+import net.minecraft.registry.Registry;
+import net.minecraft.registry.RegistryKeys;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.structure.StructureStart;
+import net.minecraft.text.ClickEvent;
+import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
-import net.minecraft.util.Util;
+import net.minecraft.text.Texts;
+import net.minecraft.util.Formatting;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.world.World;
@@ -18,29 +21,39 @@ import net.minecraft.world.gen.structure.Structure;
 
 import java.util.Map;
 
+import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
 
 public class FindNearestStructureCommand {
     public static void register() {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(literal("findneareststructure").requires(source -> source.hasPermissionLevel(2))
-                .executes(FindNearestStructureCommand::findNearestStructure)));
+                .executes(context -> findNearestStructure(context, 50))
+                .then(argument("radius", IntegerArgumentType.integer(0))
+                        .executes(context -> findNearestStructure(context, IntegerArgumentType.getInteger(context, "radius"))))));
     }
 
-    private static int findNearestStructure(CommandContext<ServerCommandSource> context) {
-        Pair<BlockPos, RegistryEntry<Structure>> pair = locateNearestStructure(context, context.getSource().getWorld(), 50);
-        if (pair == null) {
+    private static int findNearestStructure(CommandContext<ServerCommandSource> context, int radius) {
+        Registry<Structure> registry = context.getSource().getWorld().getRegistryManager().get(RegistryKeys.STRUCTURE);
+        for (Structure s: registry) {
+            context.getSource().sendFeedback(() -> Text.of(String.valueOf(s.getType())), false);
+
+        }
+
+        BlockPos pos = locateNearestStructure(context, context.getSource().getWorld(), radius);
+        if (pos == null) {
             return 0;
         }
+            BlockPos startPos = context.getSource().getEntity().getBlockPos();
+            MutableText coordinates = Texts.bracketed(Text.translatable("%s, ~, %s", pos.getX(), pos.getZ()).styled(style -> style.withColor(Formatting.GREEN).withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/tp @s " + pos.getX() + " " + startPos.getY() + " " + pos.getZ()))));
+            context.getSource().sendFeedback(() -> Text.translatable("The nearest structure is at %s (%s blocks away)", coordinates, distanceBetween(startPos, new BlockPos(pos.getX(), startPos.getY(), pos.getZ()))), false);
         return 1;
     }
 
-    private static Pair<BlockPos, RegistryEntry<Structure>> locateNearestStructure(CommandContext<ServerCommandSource> context, World world, int radius) {
+    private static BlockPos locateNearestStructure(CommandContext<ServerCommandSource> context, World world, int radius) {
         double d = Double.MAX_VALUE;
         ChunkPos startChunkPos = context.getSource().getEntity().getChunkPos();
         ChunkPos currentChunkPos;
         BlockPos pos = null;
-        Pair<BlockPos, RegistryEntry<Structure>> pair = null;
-        Stopwatch stopwatch = Stopwatch.createStarted(Util.TICKER);
         for (int i = 0; i <= radius; ++i) {
             for (int j = -radius; j <= radius; ++j) {
                 for (int k = -radius; k <= radius; ++k) {
@@ -56,16 +69,7 @@ public class FindNearestStructureCommand {
                 }
             }
         }
-        stopwatch.stop();
-        if (pos != null) {
-            int x = pos.getX();
-            int z = pos.getZ();
-            context.getSource().sendFeedback(() -> Text.translatable("Found structure at [%s %s]", x,z), false);
-            context.getSource().sendFeedback(() -> Text.translatable("Took %s ms", stopwatch.elapsed()), false);
-        } else {
-            context.getSource().sendError(Text.of("No"));
-        }
-        return pair;
+        return pos;
     }
 
     private static boolean chunkHasStructure(ChunkPos chunkpos, World world) {
@@ -78,5 +82,12 @@ public class FindNearestStructureCommand {
             }
         }
         return false;
+    }
+
+    private static int distanceBetween(BlockPos pos1, BlockPos pos2) {
+        int x = Math.abs(pos1.getX() - pos2.getX());
+        int y = Math.abs(pos1.getY() - pos2.getY());
+        int z = Math.abs(pos1.getZ() - pos2.getZ());
+        return x + y + z;
     }
 }
