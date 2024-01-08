@@ -3,8 +3,6 @@ package net.findneareststructure;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.minecraft.registry.Registry;
-import net.minecraft.registry.RegistryKeys;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.structure.StructureStart;
 import net.minecraft.text.ClickEvent;
@@ -33,12 +31,6 @@ public class FindNearestStructureCommand {
     }
 
     private static int findNearestStructure(CommandContext<ServerCommandSource> context, int radius) {
-        Registry<Structure> registry = context.getSource().getWorld().getRegistryManager().get(RegistryKeys.STRUCTURE);
-        for (Structure s: registry) {
-            context.getSource().sendFeedback(() -> Text.of(String.valueOf(s.getType())), false);
-
-        }
-
         BlockPos pos = locateNearestStructure(context, context.getSource().getWorld(), radius);
         if (pos == null) {
             return 0;
