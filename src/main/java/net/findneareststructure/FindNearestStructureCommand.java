@@ -33,6 +33,7 @@ public class FindNearestStructureCommand {
     private static int findNearestStructure(CommandContext<ServerCommandSource> context, int radius) {
         BlockPos pos = locateNearestStructure(context, context.getSource().getWorld(), radius);
         if (pos == null) {
+            context.getSource().sendError(Text.of("Could not find a structure in the given radius"));
             return 0;
         }
             BlockPos startPos = context.getSource().getEntity().getBlockPos();
