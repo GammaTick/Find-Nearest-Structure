@@ -49,7 +49,7 @@ public class FindNearestStructureCommand {
         return 1;
     }
 
-    private static  Pair<Identifier, BlockPos> locateNearestStructure(CommandContext<ServerCommandSource> context, Registry<Structure> registry, World world, int radius) {
+    private static Pair<Identifier, BlockPos> locateNearestStructure(CommandContext<ServerCommandSource> context, Registry<Structure> registry, World world, int radius) {
         double d = Double.MAX_VALUE;
         ChunkPos startChunkPos = context.getSource().getEntity().getChunkPos();
         ChunkPos currentChunkPos;
