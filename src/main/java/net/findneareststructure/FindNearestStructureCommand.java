@@ -17,11 +17,10 @@ import net.minecraft.util.Pair;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.world.World;
-import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.ChunkStatus;
 import net.minecraft.world.gen.structure.Structure;
 
-import java.util.Map;
+import java.util.*;
 
 import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
@@ -29,15 +28,13 @@ import static net.minecraft.server.command.CommandManager.literal;
 public class FindNearestStructureCommand {
     public static void register() {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(literal("findneareststructure").requires(source -> source.hasPermissionLevel(2))
-                .executes(context -> findNearestStructure(context, 50))
+                .executes(context -> findNearestStructure(context, 100))
                 .then(argument("radius", IntegerArgumentType.integer(0))
                         .executes(context -> findNearestStructure(context, IntegerArgumentType.getInteger(context, "radius"))))));
     }
 
     private static int findNearestStructure(CommandContext<ServerCommandSource> context, int radius) {
-        Registry<Structure> registry = context.getSource().getWorld().getRegistryManager().get(RegistryKeys.STRUCTURE);
-
-        Pair<Identifier, BlockPos> pair = locateNearestStructure(context, registry, context.getSource().getWorld(), radius);
+        Pair<Identifier, BlockPos> pair = locateNearestStructure(context, context.getSource().getWorld(), radius);
         if (pair == null) {
             context.getSource().sendError(Text.of("Could not find a structure in the given radius"));
             return 0;
@@ -45,37 +42,45 @@ public class FindNearestStructureCommand {
         BlockPos startPos = context.getSource().getEntity().getBlockPos();
         BlockPos pos = pair.getRight();
         MutableText coordinates = Texts.bracketed(Text.translatable("%s, ~, %s", pos.getX(), pos.getZ())).styled(style -> style.withColor(Formatting.GREEN).withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/tp @s " + pos.getX() + " " + startPos.getY() + " " + pos.getZ())));
-        context.getSource().sendFeedback(() -> Text.translatable("The nearest %s is at %s (%s blocks away)",pair.getLeft(), coordinates, distanceBetween(startPos, new BlockPos(pos.getX(), startPos.getY(), pos.getZ()))), false);
+        context.getSource().sendFeedback(() -> Text.translatable("The nearest %s is at %s (%s blocks away)", pair.getLeft(), coordinates, distanceBetween(startPos, new BlockPos(pos.getX(), startPos.getY(), pos.getZ()))), false);
         return 1;
     }
 
-    private static Pair<Identifier, BlockPos> locateNearestStructure(CommandContext<ServerCommandSource> context, Registry<Structure> registry, World world, int radius) {
-        double d = Double.MAX_VALUE;
-        ChunkPos startChunkPos = context.getSource().getEntity().getChunkPos();
-        ChunkPos currentChunkPos;
-        Pair<Identifier, BlockPos> pair = null;
-        for (int i = 0; i <= radius; ++i) {
-            for (int j = -radius; j <= radius; ++j) {
-                for (int k = -radius; k <= radius; ++k) {
-                    currentChunkPos = new ChunkPos(startChunkPos.x + j, startChunkPos.z + k);
-                    Pair<Structure, Boolean> hasStructure = chunkHasStructure(currentChunkPos, world);
-                    if (hasStructure.getRight()) {
-                        double f = startChunkPos.getSquaredDistance(currentChunkPos);
-                        if (!(f < d)) {
-                            continue;
-                        }
-                        d = f;
-                        pair = new Pair<>(registry.getId(hasStructure.getLeft()), world.getChunk(currentChunkPos.x, currentChunkPos.z).getPos().getStartPos());
+    private static Pair<Identifier, BlockPos> locateNearestStructure(CommandContext<ServerCommandSource> context, World world, int radius) {
+        Registry<Structure> registry = context.getSource().getWorld().getRegistryManager().get(RegistryKeys.STRUCTURE);
+        Queue<ChunkPos> queue = new LinkedList<>();
+        Set<ChunkPos> visited = new HashSet<>();
+
+        ChunkPos startChunkPos = Objects.requireNonNull(context.getSource().getEntity()).getChunkPos();
+        queue.add(startChunkPos);
+        visited.add(startChunkPos);
+
+        while (!queue.isEmpty()) {
+            ChunkPos currentChunkPos = queue.poll();
+            Pair<Structure, Boolean> chunkHasStructure = chunkHasStructure(currentChunkPos, world);
+
+            if (chunkHasStructure.getRight()) {
+                return new Pair<>(registry.getId(chunkHasStructure.getLeft()), world.getChunk(currentChunkPos.x, currentChunkPos.z).getPos().getStartPos());
+            }
+
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    ChunkPos nextChunkPos = new ChunkPos(currentChunkPos.x + dx, currentChunkPos.z + dz);
+                    if (!visited.contains(nextChunkPos) && startChunkPos.getSquaredDistance(nextChunkPos) <= radius * radius) {
+                        queue.add(nextChunkPos);
+                        visited.add(nextChunkPos);
                     }
                 }
             }
         }
-        return pair;
+
+        return null;
     }
 
+
+
     private static Pair<Structure, Boolean> chunkHasStructure(ChunkPos chunkpos, World world) {
-        Chunk chunk = world.getChunk(chunkpos.x, chunkpos.z, ChunkStatus.STRUCTURE_STARTS);
-        Map<Structure, StructureStart> structure = chunk.getStructureStarts();
+        Map<Structure, StructureStart> structure = world.getChunk(chunkpos.x, chunkpos.z, ChunkStatus.STRUCTURE_STARTS).getStructureStarts();
         for (Map.Entry<Structure, StructureStart> entry : structure.entrySet()) {
             StructureStart structureStart = entry.getValue();
             if (structureStart != null && structureStart.hasChildren()) {
