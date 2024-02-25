@@ -39,7 +39,7 @@ public class FindNearestStructureCommand {
             context.getSource().sendError(Text.of("Could not find a structure in the given radius"));
             return 0;
         }
-        BlockPos startPos = context.getSource().getEntity().getBlockPos();
+        BlockPos startPos = Objects.requireNonNull(context.getSource().getEntity()).getBlockPos();
         BlockPos pos = pair.getRight();
         MutableText coordinates = Texts.bracketed(Text.translatable("%s, ~, %s", pos.getX(), pos.getZ())).styled(style -> style.withColor(Formatting.GREEN).withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/tp @s " + pos.getX() + " " + startPos.getY() + " " + pos.getZ())));
         context.getSource().sendFeedback(() -> Text.translatable("The nearest %s is at %s (%s blocks away)", pair.getLeft(), coordinates, distanceBetween(startPos, new BlockPos(pos.getX(), startPos.getY(), pos.getZ()))), false);
@@ -47,37 +47,55 @@ public class FindNearestStructureCommand {
     }
 
     private static Pair<Identifier, BlockPos> locateNearestStructure(CommandContext<ServerCommandSource> context, World world, int radius) {
+        BlockPos startPos = context.getSource().getEntity().getBlockPos();
+        int startX = context.getSource().getEntity().getChunkPos().x;
+        int startZ = context.getSource().getEntity().getChunkPos().z;
         Registry<Structure> registry = context.getSource().getWorld().getRegistryManager().get(RegistryKeys.STRUCTURE);
-        Queue<ChunkPos> queue = new LinkedList<>();
         Set<ChunkPos> visited = new HashSet<>();
+        int ring = 0;
+        int rindcount = 0;
 
-        ChunkPos startChunkPos = Objects.requireNonNull(context.getSource().getEntity()).getChunkPos();
-        queue.add(startChunkPos);
-        visited.add(startChunkPos);
-
-        while (!queue.isEmpty()) {
-            ChunkPos currentChunkPos = queue.poll();
-            Pair<Structure, Boolean> chunkHasStructure = chunkHasStructure(currentChunkPos, world);
-
-            if (chunkHasStructure.getRight()) {
-                return new Pair<>(registry.getId(chunkHasStructure.getLeft()), world.getChunk(currentChunkPos.x, currentChunkPos.z).getPos().getStartPos());
-            }
-
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    ChunkPos nextChunkPos = new ChunkPos(currentChunkPos.x + dx, currentChunkPos.z + dz);
-                    if (!visited.contains(nextChunkPos) && startChunkPos.getSquaredDistance(nextChunkPos) <= radius * radius) {
-                        queue.add(nextChunkPos);
-                        visited.add(nextChunkPos);
+        List<Pair<Structure, BlockPos>> foundStructures = new ArrayList<>();
+        while (ring <= radius) {
+            for (int x = -ring; x <= ring; x++) {
+                for (int z = -ring; z <= ring; z++) {
+                    if (Math.abs(x) == ring || Math.abs(z) == ring) {
+                        ChunkPos checkChunkPos = new ChunkPos(startX + x, startZ + z);
+                        if (!visited.contains(checkChunkPos)) {
+                            visited.add(checkChunkPos);
+                            Pair<Structure, Boolean> structurePair = chunkHasStructure(checkChunkPos, world);
+                            if (structurePair.getRight()) {
+                                foundStructures.add(new Pair<>(structurePair.getLeft(), world.getChunk(checkChunkPos.x, checkChunkPos.z).getPos().getStartPos()));
+                            }
+                        }
                     }
                 }
             }
+            if (!foundStructures.isEmpty()) {
+                rindcount++;
+            }
+            if (rindcount == 2) {
+                break;
+            }
+            ring++;
         }
 
+        Pair<Structure, BlockPos> closestStructure = null;
+        double closestDistance = Double.MAX_VALUE;
+
+        for (Pair<Structure, BlockPos> structure : foundStructures) {
+            double distance = distanceBetween(structure.getRight(), startPos);
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestStructure = structure;
+            }
+        }
+
+        if (closestStructure != null) {
+            return new Pair<>(registry.getId(closestStructure.getLeft()), closestStructure.getRight());
+        }
         return null;
     }
-
-
 
     private static Pair<Structure, Boolean> chunkHasStructure(ChunkPos chunkpos, World world) {
         Map<Structure, StructureStart> structure = world.getChunk(chunkpos.x, chunkpos.z, ChunkStatus.STRUCTURE_STARTS).getStructureStarts();
